@@ -125,6 +125,23 @@ header.top{border-bottom:0;box-shadow:0 6px 18px rgba(0,0,0,.07);position:relati
 .aufpill.bed{background:#fff;box-shadow:inset 0 0 0 1.5px #f4bd00}
 .aufline{display:flex;align-items:center;gap:8px;font-size:15px;padding-top:10px;border-top:1px solid rgba(0,0,0,.1)}
 .aufline b{font-weight:400;letter-spacing:2px;text-transform:uppercase;font-size:13px}
+
+/* ===== Nummerierung Sauna 1 / Sauna 2 ===== */
+.snum{display:inline-block;align-self:flex-start;background:#000;color:#fff;font-family:var(--head);font-weight:600;font-size:15px;letter-spacing:3px;line-height:1;padding:7px 11px 6px;border-radius:8px}
+.tl .snum{margin-bottom:-2px}
+/* ===== Startseite: Saunaname gross, aktueller Status kleiner im Kasten "AKTUELL" ===== */
+.tile .tile-label{font-size:40px;letter-spacing:4px}
+.tile .cap{font-size:14px}
+.nowbox{background:#f3f3f3;border-radius:14px;padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px}
+.nowhead{display:flex;align-items:center;gap:10px;font-family:var(--head);font-weight:600;font-size:18px;letter-spacing:4px;color:#000}
+.nowhead .live{width:14px;height:14px;border-radius:50%;background:#f4bd00;box-shadow:0 0 0 0 rgba(244,189,0,.6);animation:livep 1.8s ease-in-out infinite}
+@keyframes livep{0%,100%{box-shadow:0 0 0 0 rgba(244,189,0,.6)}50%{box-shadow:0 0 0 9px rgba(244,189,0,0)}}
+@media (prefers-reduced-motion:reduce){.nowhead .live{animation:none}}
+.nowbox .status{gap:12px}
+.nowbox .status .txt{flex-direction:row;flex-wrap:wrap;column-gap:8px;row-gap:0;align-items:baseline}
+.nowbox .big{font-size:23px;letter-spacing:1.5px}
+.nowbox .meta{font-size:16px}
+.nowbox .aufpill{margin-top:0}
 </style>
 </head>
 <body>
@@ -308,8 +325,9 @@ function infraTile(t){
   }
   const hours=allClosed?`<span class="time">Derzeit geschlossen</span>`:infraHours(plan).slice(0,4).map(h=>`<span class="time">${esc(h.label)}&nbsp;&nbsp;${esc(h.txt)}</span>`).join("");
   return `<div class="tile">
-      <div class="tile-top"><span class="tl"><span class="tile-label">INFRAROT</span><span class="cap">max. 1 Person</span></span></div>
-      <div class="status"><div class="ico">${irIcon(open?"#000000":"rgba(0,0,0,.4)",60)}</div><div class="txt"><span class="big">${open?"GEÖFFNET":"GESCHLOSSEN"}</span></div></div>
+      <div class="tile-top"><span class="tl"><span class="tile-label">INFRAROT</span></span></div>
+      <div class="nowbox"><div class="nowhead"><i class="live"></i>AKTUELL</div>
+      <div class="status"><div class="ico">${irIcon(open?"#000000":"rgba(0,0,0,.4)",36)}</div><div class="txt"><span class="big">${open?"GEÖFFNET":"GESCHLOSSEN"}</span></div></div></div>
       <div class="meta" style="flex-direction:column;align-items:flex-start;gap:4px">${hours}</div>
       <div class="foot">${esc(foot)}</div></div>`;
 }
@@ -318,10 +336,11 @@ function viewHome(data,t){
   const tile=(href,label,plan,aria,cap)=>{
     const info=statusInfo(plan,t);
     return `<a class="tile" href="${href}" aria-label="${aria}">
-      <div class="tile-top"><span class="tl"><span class="tile-label">${label}</span><span class="cap">${cap}</span></span>${arrowIcon("#1f1f1f")}</div>
-      ${statusBlock(info,false)}
+      <div class="tile-top"><span class="tl"><span class="snum">${cap}</span><span class="tile-label">${label}</span></span>${arrowIcon("#1f1f1f")}</div>
+      <div class="nowbox"><div class="nowhead"><i class="live"></i>AKTUELL</div>
+      ${statusBlock(info,false,40)}
       ${metaLine(info)}
-      ${aufgussPill(plan,t)}
+      ${aufgussPill(plan,t)}</div>
       <div class="foot">${esc(info.foot)}</div></a>`;
   };
   return `<header class="top">
@@ -332,8 +351,8 @@ function viewHome(data,t){
     </header>
     <main style="gap:16px">
       ${AUFGUSS_BANNER}
-      ${tile("#finnisch","SAUNA VIEW",data.finnisch,"Sauna View öffnen","max. 14 Personen")}
-      ${tile("#sanarium","SAUNA COZY",data.sanarium,"Sauna Cozy öffnen","max. 8 Personen")}
+      ${tile("#finnisch","SAUNA VIEW",data.finnisch,"Sauna 1 – Sauna View öffnen","SAUNA 1")}
+      ${tile("#sanarium","SAUNA COZY",data.sanarium,"Sauna 2 – Sauna Cozy öffnen","SAUNA 2")}
       ${infraTile(t)}
     </main>`;
 }
@@ -348,7 +367,7 @@ function detailHead(titleHtml,tabs,info,pill){
 function sanariumTabs(which){
   return `<nav class="tabs"><a href="#sanarium" class="${which==="heute"?"on":""}"${which==="heute"?' aria-current="page"':""}>HEUTE</a><a href="#sanarium-woche" class="${which==="woche"?"on":""}"${which==="woche"?' aria-current="page"':""}>WOCHE</a></nav>`;
 }
-const SAN_TITLE=`<div class="h-bold" style="margin-top:12px;font-size:36px;letter-spacing:3px">SAUNA COZY</div><div class="hcap">max. 8 Personen</div>`;
+const SAN_TITLE=`<div class="snum" style="margin-top:12px">SAUNA 2</div><div class="h-bold" style="margin-top:10px;font-size:36px;letter-spacing:3px">SAUNA COZY</div><div class="hcap">max. 8 Personen</div>`;
 function viewSanariumHeute(data,t){
   const rows=daysOf(data.sanarium,t.weekday);
   const active=findActive(rows,t.minutes);
@@ -386,7 +405,7 @@ function viewSanariumWoche(data,t){
       ${isEmptyPlan(data.sanarium)?closedCard("Die Sauna Cozy"):weekBlocks(data.sanarium,t,true)}</main>`;
 }
 function viewFinnisch(data,t){
-  const title=`<div class="h-bold" style="margin-top:12px;font-size:36px;letter-spacing:3px">SAUNA VIEW</div><div class="hcap">max. 14 Personen</div>`;
+  const title=`<div class="snum" style="margin-top:12px">SAUNA 1</div><div class="h-bold" style="margin-top:10px;font-size:36px;letter-spacing:3px">SAUNA VIEW</div><div class="hcap">max. 14 Personen</div>`;
   return detailHead(title,"",statusInfo(data.finnisch,t),aufgussPill(data.finnisch,t)) +
     `<main>${isEmptyPlan(data.finnisch)?"":`<div class="legend"><div class="keys">
       <span>${mixedIcon("#000",26,22)}Mixed Finnisch</span>
@@ -400,11 +419,11 @@ function sk(w,h,extra){return `<div class="sk" style="width:${w};height:${h}px;$
 function viewSkeleton(route,t){
   if(route.startsWith("sanarium")||route==="finnisch"){
     const title = route==="finnisch"
-      ? `<div class="h-bold" style="margin-top:12px;font-size:36px;letter-spacing:3px">SAUNA VIEW</div><div class="hcap">max. 14 Personen</div>`
+      ? `<div class="snum" style="margin-top:12px">SAUNA 1</div><div class="h-bold" style="margin-top:10px;font-size:36px;letter-spacing:3px">SAUNA VIEW</div><div class="hcap">max. 14 Personen</div>`
       : SAN_TITLE;
     return detailHead(title,"",null)+`<main>${[1,2,3,4].map(()=>`<div class="row" style="gap:14px">${sk("40px",34)}${sk("100px",18)}${sk("40%",18)}</div>`).join("")}</main>`;
   }
-  const tile=(label,cap)=>`<div class="tile"><div class="tile-top"><span class="tl"><span class="tile-label">${label}</span><span class="cap">${cap}</span></span>${arrowIcon("#1f1f1f")}</div>
+  const tile=(label,cap)=>`<div class="tile"><div class="tile-top"><span class="tl"><span class="snum">${cap}</span><span class="tile-label">${label}</span></span>${arrowIcon("#1f1f1f")}</div>
       <div class="status">${sk("66px",56,"border-radius:12px")}<div class="txt" style="flex:1;gap:10px">${sk("70%",26)}${sk("55%",26)}</div></div>
       ${sk("80%",20)}<div class="foot">${sk("60%",14)}</div></div>`;
   return `<header class="top">
@@ -413,7 +432,7 @@ function viewSkeleton(route,t){
       <div class="bar"></div>
       <div class="datetime">${t.weekday.toUpperCase()}, ${t.clock} UHR</div>
     </header>
-    <main style="gap:16px">${tile("SAUNA VIEW","max. 14 Personen")}${tile("SAUNA COZY","max. 8 Personen")}</main>`;
+    <main style="gap:16px">${tile("SAUNA VIEW","SAUNA 1")}${tile("SAUNA COZY","SAUNA 2")}</main>`;
 }
 
 /* ---------- Steuerung ---------- */
