@@ -309,10 +309,21 @@
 #aufguss{position:relative !important;right:auto !important;bottom:auto !important;margin-top:40px}
 #aufguss:empty{display:none}
 .pf{position:relative;width:100%;background:#f4bd00;color:#000;display:flex;align-items:center;gap:28px;min-height:250px;
-  filter:drop-shadow(0 0 28px rgba(244,189,0,.55));animation:pfBlink 1.8s ease-in-out infinite}
+  filter:drop-shadow(0 0 28px rgba(244,189,0,.55));overflow:hidden;animation:pfFlow 6s ease-in-out infinite}
+/* Normal: ruhiges "Fliessen" - sanftes Atmen + Lichtband, das in Pfeilrichtung durchzieht */
+.pf::after{content:"";position:absolute;top:0;bottom:0;width:38%;pointer-events:none;
+  background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.38) 50%,rgba(255,255,255,0) 100%)}
+.pf.r::after{left:-40%;animation:pfSweepR 4.5s ease-in-out infinite}
+.pf.l::after{right:-40%;animation:pfSweepL 4.5s ease-in-out infinite}
+@keyframes pfFlow{0%,100%{opacity:1}50%{opacity:.82}}
+@keyframes pfSweepR{0%{transform:translateX(0)}70%,100%{transform:translateX(370%)}}
+@keyframes pfSweepL{0%{transform:translateX(0)}70%,100%{transform:translateX(-370%)}}
+/* 2 Minuten vor dem Aufguss und waehrend "Aufguss JETZT": deutlich blinken */
+.pf.alert{animation:pfBlink 1.8s ease-in-out infinite}
+.pf.alert::after{display:none}
 .pf.r{clip-path:polygon(0 0,calc(100% - 120px) 0,100% 50%,calc(100% - 120px) 100%,0 100%);padding:22px 140px 22px 36px}
 .pf.l{clip-path:polygon(120px 0,100% 0,100% 100%,120px 100%,0 50%);padding:22px 36px 22px 140px}
-.pf.now{animation:pfBlinkFast .8s ease-in-out infinite}
+
 @keyframes pfBlink{0%,100%{opacity:1}50%{opacity:.4}}
 @keyframes pfBlinkFast{0%,100%{opacity:1}50%{opacity:.25}}
 .pf .ring{width:206px;height:206px;flex:0 0 auto;position:relative}
@@ -647,13 +658,14 @@ function renderAufguss(rows, nowMin, activeRow){
       ? ring(p, num) + `<div class="col"><div class="l1">Sauna schließt</div><div class="l2">${time} Uhr</div></div>`
       : ring(p, num) + `<div class="col"><div class="l1">Ab ${time} Uhr</div><div class="l2">${nextRow.bereich}</div></div>`;
   }
-  const html = `<div class="pf ${AUF_DIR}${st === "now" ? " now" : ""}">${h}</div>`;
+  const alert = st === "now" || (st === "count" && diff <= 2);   // kurz vor/waehrend Aufguss blinken, sonst ruhig fliessen
+  const html = `<div class="pf ${AUF_DIR}${st === "now" ? " now" : ""}${alert ? " alert" : ""}">${h}</div>`;
   if(el.dataset.h === html) return;                 // unveraendert -> Blinken laeuft ruhig weiter
   el.dataset.h = html; el.innerHTML = html;
   // Text nie abschneiden: grosse Zeile verkleinern, bis alles im Pfeil Platz hat
   const pf = el.firstChild, big = pf.querySelector(".l2");
   if(big){ const col = big.parentElement; let fs = parseFloat(getComputedStyle(big).fontSize);
-    while((big.scrollWidth > col.clientWidth + 1 || pf.scrollWidth > pf.clientWidth + 1) && fs > 56){ fs -= 4; big.style.fontSize = fs + "px"; } }
+    while(big.scrollWidth > col.clientWidth + 1 && fs > 56){ fs -= 4; big.style.fontSize = fs + "px"; } }
 }
 
 /* update() darf nie den Rest der Seite stoppen: Fehler werden gemerkt und an status.html gemeldet */
