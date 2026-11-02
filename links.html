@@ -351,7 +351,7 @@ function writeCache(d){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d));
 let dataTimer = null;
 function loadData(){
   clearTimeout(dataTimer);
-  fetch(DATA_URL + "&video=" + videoState() + "&codec=" + videoCodec(), { cache:"no-store" })
+  fetch(DATA_URL + "&video=" + videoState() + "&codec=" + videoCodec() + "&restarts=" + rebuilds, { cache:"no-store" })
     .then(r => { if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(d => {
       if(!d || !d.sanarium || typeof d.sanarium !== "object") throw new Error("unerwartete Daten");
@@ -363,15 +363,18 @@ function loadData(){
 }
 
 /* ---------- Video: laeuft immer weiter (Schutz gegen Haenger) ----------
-   Kein loop-Attribut (auf manchen Samsung-Displays unzuverlaessig):
-   am Ende wird manuell auf 0 gesprungen. Der Waechter prueft alle 3 s,
-   ob die Wiedergabezeit weiterlaeuft, und greift stufenweise ein:
-      6 s Stillstand -> play() + kleiner Sprung
-     12 s Stillstand -> Video-Element komplett neu anlegen (gibt den
-                        Decoder frei)
-     nach 3 Neuanlagen ohne Erfolg -> Seite neu laden (max. 1x / 30 Min) */
+   Normalfall: Das Video laeuft einfach in Schleife (am Ende manuell auf 0,
+   das loop-Attribut ist auf manchen Samsung-Displays unzuverlaessig).
+   Der Waechter greift NUR bei echtem Stillstand ein und schneidet das
+   Video dabei nie ab:
+     20 s ohne Fortschritt -> nur erneut "play" (kein Sprung)
+     45 s ohne Fortschritt -> Video-Element neu anlegen und an DERSELBEN
+                              Stelle weiterspielen (nicht von vorne)
+     4x hintereinander ohne Erfolg -> Seite neu laden (max. 1x / 30 Min)
+   Ab dem 2. Durchlauf spielt das Video aus dem Speicher des Displays. */
 const PARAMS = new URLSearchParams(location.search);
 const VIDEO_SRC = PARAMS.get("video") === "hevc" ? "sauna-video-hevc.mp4" : "sauna-video.mp4";
+const KICK_AFTER_MS = 20000, REBUILD_AFTER_MS = 45000;
 let vid = null, lastT = -1, lastProgress = Date.now(), videoError = false, rebuilds = 0, rebuildsSinceOk = 0;
 let MEM_URL = null;                       // Video im Speicher (blob:)
 function preloadVideo(){
@@ -379,10 +382,7 @@ function preloadVideo(){
     .then(r => { if(!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
     .then(b => {
       if(!b || b.size < 1000000) throw new Error("Video unvollstaendig");
-      MEM_URL = URL.createObjectURL(b);
-      // beim naechsten Schleifen-Ende auf die Speicher-Version wechseln (kein sichtbarer Sprung);
-      // haengt das Video gerade, sofort wechseln
-      if(!vid || Date.now() - lastProgress > 5000) createVideo();
+      MEM_URL = URL.createObjectURL(b);   // Wechsel erfolgt am Ende des laufenden Durchlaufs
     })
     .catch(err => { console.warn("Video konnte nicht in den Speicher geladen werden:", err); setTimeout(preloadVideo, 10 * 60 * 1000); });
 }
@@ -398,32 +398,35 @@ function destroyVideo(){
   if(vid.parentNode) vid.parentNode.removeChild(vid);
   vid = null;
 }
-function createVideo(){
+function createVideo(resumeAt){
   destroyVideo();
   const v = document.createElement("video");
   v.muted = true; v.defaultMuted = true; v.autoplay = true; v.playsInline = true;
   v.setAttribute("muted", ""); v.setAttribute("playsinline", ""); v.setAttribute("disablepictureinpicture", "");
   v.preload = "auto";
+  if(resumeAt > 1){
+    // an der bisherigen Stelle weiterspielen
+    v.addEventListener("loadedmetadata", () => {
+      try{ if(isFinite(v.duration) && resumeAt < v.duration - 1){ v.currentTime = resumeAt; } }catch(e){}
+    }, { once:true });
+  }
   v.addEventListener("canplay", kick);
   v.addEventListener("ended", () => {
-    if(MEM_URL && v.src !== MEM_URL){ createVideo(); return; }   // jetzt aus dem Speicher weiter
-    lastT = 0;
+    if(MEM_URL && v.src !== MEM_URL){ createVideo(0); return; }   // ab jetzt aus dem Speicher
     try{ v.currentTime = 0; }catch(e){} kick();
   });
   v.addEventListener("timeupdate", () => noteTime(v));
-  v.addEventListener("seeked", () => { if(v === vid) lastT = v.currentTime; });   // Sprung zaehlt nie als Fortschritt
   v.addEventListener("error", () => { videoError = true; });
   v.src = MEM_URL || VIDEO_SRC;
   document.getElementById("vidbox").appendChild(v);
-  vid = v; lastT = 0; lastProgress = Date.now();
+  vid = v; lastT = -1; lastProgress = Date.now();
   kick();
 }
-/* Echter Fortschritt = Wiedergabezeit laeuft vorwaerts (kein Sprung, kein Neustart) */
+/* Fortschritt = Wiedergabezeit hat sich veraendert (auch beim Sprung an den Anfang) */
 function noteTime(v){
-  if(v !== vid || v.seeking) return;
+  if(v !== vid) return;
   const t = v.currentTime;
-  if(t > lastT + 0.05){ lastProgress = Date.now(); videoError = false; rebuildsSinceOk = 0; lastT = t; }
-  else if(t < lastT){ lastT = t; }            // Schleife von vorne / Ruecksprung: neue Basis
+  if(t !== lastT && !v.paused){ lastT = t; lastProgress = Date.now(); videoError = false; rebuildsSinceOk = 0; }
 }
 /* Fuer status.html: laeuft das Video wirklich? */
 function videoState(){
@@ -441,26 +444,20 @@ function canHardReload(){
   return true;
 }
 setInterval(() => {
-  if(!vid){ createVideo(); return; }
+  if(!vid){ createVideo(0); return; }
   noteTime(vid);
   const still = Date.now() - lastProgress;
   // Laedt das Video gerade noch (z. B. langsames WLAN nach dem Einschalten)? Dann bis 3 Min Geduld.
   const loading = vid.readyState < 3 && vid.networkState === 2;
-  if(still >= (loading ? 180000 : 12000)){
+  if(still >= (loading ? 180000 : REBUILD_AFTER_MS)){
     rebuilds++; rebuildsSinceOk++;
     if(rebuildsSinceOk > 3 && navigator.onLine !== false && canHardReload()){ location.reload(); return; }
-    createVideo();                                  // frisches Video-Element
-  } else if(still >= 6000 && !loading){
-    kick();
-    try{ if(vid.readyState >= 2 && isFinite(vid.duration) && vid.duration > 1){
-      const nt = (vid.currentTime + 0.5) % (vid.duration - 0.5);
-      lastT = nt;                                    // Sprung zaehlt nicht als Fortschritt
-      vid.currentTime = nt; } }catch(e){}
-  } else if(vid.paused){
-    kick();
+    createVideo(lastT > 0 ? lastT : 0);             // frisches Element, an derselben Stelle weiter
+  } else if(still >= KICK_AFTER_MS || vid.paused){
+    kick();                                         // nur weiterspielen, kein Sprung
   }
-}, 3000);
-createVideo();
+}, 5000);
+createVideo(0);
 preloadVideo();
 
 /* ---------- An Bildschirm anpassen (optional drehen) ---------- */

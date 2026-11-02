@@ -89,8 +89,9 @@ function render(d){
     let meta = s.last ? "Zuletzt gemeldet " + ago(s.ageMin) + " · " + (s.ageMin >= 1440 ? day(s.last) + " " : "") + clock(s.last) + " Uhr" : "Hat sich noch nicht gemeldet – Seite am Display aufrufen.";
     if(s.video){
       const v = s.video === "laeuft" ? "Video läuft" : (s.video === "fehler" ? "Video-Fehler" : "Video steht");
-      const c = s.codec ? " (" + (s.codec === "hevc" ? "HEVC" : "H.264") + ")" : "";
+      const c = s.codec ? " (" + (/hevc/.test(s.codec) ? "HEVC" : "H.264") + (/mem/.test(s.codec) ? ", aus Speicher" : "") + ")" : "";
       meta += "<br>" + (s.videoProblem ? `<span class="warn">${esc(v)} seit über 15 Min</span>` : esc(v + c));
+      if(typeof s.restarts === "number") meta += "<br>" + (s.restarts === 0 ? "Video ohne Unterbrechung seit Start" : esc("Video-Wächter eingegriffen: " + s.restarts + "× seit Start"));
     }
     return `<div class="card"><div class="dot ${s.view}"></div><div class="txt">
       <div class="name">${esc(s.name)}</div>
