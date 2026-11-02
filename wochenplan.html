@@ -123,6 +123,10 @@ html,body{background:#2a2a2a;color:#fff;font-family:'Frutiger LightCn',"Arial Na
 .duo .bar .hr .h2{font-size:30px;white-space:nowrap}
 .duo .bar .hl .z{font-size:27px;white-space:nowrap}
 .duo .bar .hl .d{font-size:16px;white-space:nowrap}
+.duo .bar.wrapz .r{min-width:0;flex:1 1 auto}
+.duo .bar.wrapz .hr{min-width:0}
+.zp{white-space:nowrap}
+.duo .bar.wrapz .z{white-space:normal;text-align:right;line-height:1.15}
 </style>
 </head>
 <body>
@@ -188,9 +192,11 @@ function hoursHtml(plan){
   if(allClosed(plan)){const w=closedWhy(plan);
     return `<div class="hr"><span class="h1">DERZEIT</span><span class="h2">geschlossen</span>${w?`<span class="h1">${esc(w)}</span>`:""}</div>`;}
   const g=finSummary(plan);
+  // jede Zeitspanne bleibt zusammen, Umbruch nur zwischen den Spannen
+  const zt=t=>String(t).split(", ").map(p=>`<span class="zp">${esc(p)}</span>`).join(", ");
   return g.length===1
-    ? `<div class="hr"><span class="h1">${dayRange(g[0])}</span><span class="h2">${esc(g[0].txt)}</span></div>`
-    : `<div class="hr">${g.slice(0,4).map(x=>`<div class="hl"><span class="d">${dayRange(x)}</span><span class="z">${esc(x.txt)}</span></div>`).join("")}</div>`;
+    ? `<div class="hr"><span class="h1">${dayRange(g[0])}</span><span class="h2 z">${zt(g[0].txt)}</span></div>`
+    : `<div class="hr">${g.slice(0,4).map(x=>`<div class="hl"><span class="d">${dayRange(x)}</span><span class="z">${zt(x.txt)}</span></div>`).join("")}</div>`;
 }
 
 /* Oeffnungszeiten der Finnischen Sauna je Tag (Reinigung ausgenommen) */
@@ -199,7 +205,10 @@ function finSummary(plan){
     const open=rowsOf(plan,d).filter(r=>kind(r.bereich)!=="clean"&&kind(r.bereich)!=="closed");
     if(!open.length) return "geschlossen";
     // aneinandergrenzende Slots zusammenfassen
-    const parts=[];open.forEach(r=>{const last=parts[parts.length-1];if(last&&last.end===r.start)last.end=r.end;else parts.push({start:r.start,end:r.end});});
+    // sortieren und ueberlappende/aneinandergrenzende Zeiten zusammenfassen (doppelte Zeilen im Sheet stoeren nicht)
+    const tm=x=>{const[h,m]=String(x).split(":").map(Number);return h*60+m;};
+    const parts=[];open.slice().sort((a,b)=>tm(a.start)-tm(b.start)).forEach(r=>{const last=parts[parts.length-1];
+      if(last&&tm(r.start)<=tm(last.end)){if(tm(r.end)>tm(last.end))last.end=r.end;}else parts.push({start:r.start,end:r.end});});
     return parts.map(p=>p.start+" – "+p.end).join(", ");
   });
   const groups=[];
@@ -288,6 +297,15 @@ function fit(){
   let h=58;
   plan.style.setProperty("--cellh",h+"px");
   while(plan.scrollHeight>840 && h>32){h-=1;plan.style.setProperty("--cellh",h+"px");}
+  // Zeiten unten (Sauna View / Infrarot) nie abschneiden: bei Bedarf verkleinern
+  plan.querySelectorAll(".duo .bar .r").forEach(r=>{
+    const bar=r.closest(".bar"); let z=1; r.style.zoom=""; bar.classList.remove("wrapz");
+    while(bar.scrollWidth>bar.clientWidth+1 && z>0.8){z-=0.05; r.style.zoom=z;}
+    if(bar.scrollWidth>bar.clientWidth+1){            // immer noch zu breit: Zeiten umbrechen
+      bar.classList.add("wrapz"); z=1; r.style.zoom="";
+      while(bar.scrollWidth>bar.clientWidth+1 && z>0.6){z-=0.05; r.style.zoom=z;}
+    }
+  });
   return plan.scrollHeight<=840;
 }
 
@@ -310,6 +328,7 @@ function load(){
       d.finnisch=d.finnisch||{};
       await document.fonts.ready;
       document.getElementById("plan").innerHTML=build(d);
+      await ensureFonts();
       const ok=fit();
       const t=new Date().toLocaleString("de-AT",{dateStyle:"medium",timeStyle:"short"});
       const clash=overlaps(d);

@@ -658,8 +658,13 @@ function isCleanRow(r){ return String((r && r.bereich) || "").toLowerCase().incl
 function dayHours(plan, wd){
   const rows = ((plan && plan[wd]) || []).filter(r => !isClosedRow(r) && !isCleanRow(r));
   if(!rows.length) return "geschlossen";
+  // sortieren und ueberlappende/aneinandergrenzende Zeiten zusammenfassen (doppelte Zeilen im Sheet stoeren nicht)
   const parts = [];
-  rows.forEach(r => { const l = parts[parts.length-1]; if(l && l.end === r.start) l.end = r.end; else parts.push({ start:r.start, end:r.end }); });
+  rows.slice().sort((a,b) => toMinutes(a.start) - toMinutes(b.start)).forEach(r => {
+    const l = parts[parts.length-1];
+    if(l && toMinutes(r.start) <= toMinutes(l.end)){ if(toMinutes(r.end) > toMinutes(l.end)) l.end = r.end; }
+    else parts.push({ start:r.start, end:r.end });
+  });
   return parts.map(p => p.start + " – " + p.end).join(" · ");
 }
 /* gleiche, aufeinanderfolgende Tage zusammenfassen */
