@@ -301,6 +301,31 @@
 .rt.lad{background:#ef5b84}
 .rbar{position:absolute;left:56px;right:56px;top:14px;height:5px;border-radius:3px;background:rgba(0,0,0,.08);overflow:hidden}
 .rbar i{display:block;height:100%;width:0;background:#f4bd00}
+
+/* ===== Aufguss im grossen, blinkenden Pfeil mit Countdown-Ring =====
+   Alles wird lokal im Display berechnet (wie die Uhr) - kein Laden noetig. */
+.bigarrow{display:none !important}
+.hero-title .bold{padding-left:0 !important}
+#aufguss{position:relative !important;right:auto !important;bottom:auto !important;margin-top:40px}
+#aufguss:empty{display:none}
+.pf{position:relative;width:100%;background:#f4bd00;color:#000;display:flex;align-items:center;gap:28px;min-height:250px;
+  filter:drop-shadow(0 0 28px rgba(244,189,0,.55));animation:pfBlink 1.8s ease-in-out infinite}
+.pf.r{clip-path:polygon(0 0,calc(100% - 120px) 0,100% 50%,calc(100% - 120px) 100%,0 100%);padding:22px 140px 22px 36px}
+.pf.l{clip-path:polygon(120px 0,100% 0,100% 100%,120px 100%,0 50%);padding:22px 36px 22px 140px}
+.pf.now{animation:pfBlinkFast .8s ease-in-out infinite}
+@keyframes pfBlink{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes pfBlinkFast{0%,100%{opacity:1}50%{opacity:.25}}
+.pf .ring{width:206px;height:206px;flex:0 0 auto;position:relative}
+.pf .ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.pf .ring .num{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.pf .ring .num b{font-family:'Frutiger LightCn',sans-serif;font-weight:400;font-size:110px}
+.pf .ring .num span{font-family:'Platelet',sans-serif;font-weight:600;font-size:34px;letter-spacing:4px;margin-top:2px}
+.pf .ring.stm{display:flex;align-items:center;justify-content:center;border:14px solid #000;border-radius:50%;box-sizing:border-box}
+.pf .ring.stm svg{width:96px;height:96px;transform:none}
+.pf .ring.stm svg path{stroke:#000;stroke-width:2.2}
+.pf .col{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pf .l1{font-family:'Platelet',sans-serif;font-weight:600;font-size:50px;letter-spacing:6px;line-height:1.05}
+.pf .l2{font-family:'Frutiger LightCn',sans-serif;font-weight:400;font-size:120px;line-height:1;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -585,31 +610,43 @@ function aufgussMinutes(){
   return Array.isArray(a) ? a : [15, 45];   // Standard Sauna View: Viertel nach / Viertel vor
 }
 const AUF_NOW_MIN = 3; // so lange nach dem Aufguss-Zeitpunkt steht "AUFGUSS JETZT"
+const AUF_DIR = "l";   // Pfeilrichtung zur Sauna
 function renderAufguss(rows, nowMin, activeRow){
+  // Aufguss im blinkenden Pfeil mit Countdown-Ring (wird jede Minute lokal neu berechnet)
   const el = document.getElementById("aufguss");
-  // Sanarium: automatische Bedampfung, keine festen Zeiten
-  if(activeRow && !isClosedRow(activeRow) && String(activeRow.bereich).toLowerCase().includes("sanarium")){
-    el.innerHTML = `<div class="auf bed">${steamIcon("#000")}<div><div class="ah">AUTOMATISCHE</div><div class="at">Bedampfung</div></div></div>`;
-    return;
+  let st = null, diff = 0, time = "";
+  if(activeRow && !isClosedRow(activeRow) && String(activeRow.bereich).toLowerCase().includes("sanarium")) st = "bed";
+  else {
+    const mins = aufgussMinutes();
+    for(let k = 0; k < AUF_NOW_MIN && !st; k++){ const m = nowMin - k; if(m >= 0 && mins.includes(m % 60) && isAufgussAt(rows, m)) st = "now"; }
+    if(!st){ for(let c = nowMin + 1; c < 24*60; c++){ if(mins.includes(c % 60) && isAufgussAt(rows, c)){ st = "count"; diff = c - nowMin; time = hhmm(c); break; } } }
   }
-  const mins = aufgussMinutes();
-  if(!mins.length){ el.innerHTML = ""; return; }
-  for(let k = 0; k < AUF_NOW_MIN; k++){
-    const m = nowMin - k;
-    if(m >= 0 && mins.includes(m % 60) && isAufgussAt(rows, m)){
-      el.innerHTML = `<div class="auf now">${steamIcon("#000")}<div><div class="ah">AUFGUSS</div><div class="at"><b>JETZT</b></div></div></div>`;
-      return;
-    }
+  if(!st){
+    // kein Aufguss mehr: bei Betrieb zeigt der Pfeil den Weg, bei geschlossener Sauna verschwindet er
+    if(!activeRow || isClosedRow(activeRow)){ el.dataset.h = ""; el.innerHTML = ""; return; }
+    st = "none";
   }
-  let next = null;
-  for(let c = nowMin + 1; c < 24*60; c++){ if(mins.includes(c % 60) && isAufgussAt(rows, c)){ next = c; break; } }
-  if(next === null){ el.innerHTML = ""; return; }
-  const diff = next - nowMin;
-  const txt = diff <= 15 ? `in <b>${diff} Min</b> · ${hhmm(next)}` : `<b>${hhmm(next)}</b> Uhr`;
-  el.innerHTML = `<div class="auf">${steamIcon("#000")}<div><div class="ah">NÄCHSTER AUFGUSS</div><div class="at">${txt}</div></div></div>`;
+  const ring = (p, inner) => { const C = 2 * Math.PI * 80;
+    return `<div class="ring"><svg viewBox="0 0 186 186"><circle cx="93" cy="93" r="80" fill="none" stroke="rgba(0,0,0,.18)" stroke-width="14"/>` +
+      `<circle cx="93" cy="93" r="80" fill="none" stroke="#000" stroke-width="14" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C*(1-p)}"/></svg><div class="num">${inner}</div></div>`; };
+  let h;
+  if(st === "count") h = ring(Math.max(0, Math.min(1, 1 - diff/30)), `<b>${diff}</b><span>MIN</span>`) + `<div class="col"><div class="l1">NÄCHSTER AUFGUSS</div><div class="l2">${time} Uhr</div></div>`;
+  else if(st === "now") h = ring(1, `<b style="font-size:72px">!</b>`) + `<div class="col"><div class="l1">AUFGUSS</div><div class="l2">JETZT</div></div>`;
+  else if(st === "bed") h = `<div class="ring stm">${steamIcon("#000")}</div><div class="col"><div class="l1">AUTOMATISCHE</div><div class="l2">Bedampfung</div></div>`;
+  else h = `<div class="col"><div class="l1">BITTE HIER</div><div class="l2">ZUR SAUNA</div></div>`;
+  const html = `<div class="pf ${AUF_DIR}${st === "now" ? " now" : ""}">${h}</div>`;
+  if(el.dataset.h === html) return;                 // unveraendert -> Blinken laeuft ruhig weiter
+  el.dataset.h = html; el.innerHTML = html;
+  // Text nie abschneiden: grosse Zeile verkleinern, bis alles im Pfeil Platz hat
+  const pf = el.firstChild, big = pf.querySelector(".l2");
+  if(big){ let fs = parseFloat(getComputedStyle(big).fontSize); while(pf.scrollWidth > pf.clientWidth + 1 && fs > 60){ fs -= 4; big.style.fontSize = fs + "px"; } }
 }
 
-function update(){
+/* update() darf nie den Rest der Seite stoppen: Fehler werden gemerkt und an status.html gemeldet */
+let lastErr = "", dataOk = false, lastDataOk = 0;
+function update(){ try{ updateInner(); }catch(e){ lastErr = "Anzeige: " + (e && e.message ? e.message : e); console.warn(e); } }
+window.addEventListener("error", function(ev){ lastErr = "JS: " + (ev && ev.message ? ev.message : "Fehler"); });
+function updateInner(){
   const { weekday, minutes } = nowInVienna();
   const rows = scheduleData[weekday] || [];
   const active = findActive(rows, minutes);
@@ -643,12 +680,14 @@ function loadData(){
       if(!data || typeof data !== "object" || !Object.keys(data).length) throw new Error("leere Daten");
       data = toViewData(data);
       scheduleData = data;
+      dataOk = true; lastDataOk = Date.now();
       writeCache(data);
       update();
       dataTimer = setTimeout(loadData, DATA_REFRESH_MS);
     })
     .catch(function(err){
       console.warn("Tagesplan konnte nicht geladen werden:", err);
+      dataOk = false; lastErr = "Daten: " + (err && err.message ? err.message : err);
       // Letzter bekannter Plan bleibt stehen, nur neu versuchen.
       dataTimer = setTimeout(loadData, RETRY_MS);
     });
@@ -781,6 +820,21 @@ function renderInfra(weekday, nowMin){
 }
 if(scheduleData) update();
 
+/* ================= Lebenszeichen fuer status.html =================
+   Alle 5 Minuten ein kleines Signal an das Apps Script (als Bild-Anfrage,
+   funktioniert auch, wenn das Laden der Daten einmal scheitert). */
+function ping(){
+  try{
+    const base = DATA_URL.split("?")[0];
+    const fresh = dataOk && Date.now() - lastDataOk < 15 * 60 * 1000;
+    const q = "?format=ping&screen=view&data=" + (fresh ? "ok" : "alt") + "&regeln=" + rulePhase +
+              (lastErr ? "&err=" + encodeURIComponent(String(lastErr).slice(0, 80)) : "") + "&t=" + Date.now();
+    const img = new Image(); img.src = base + q;
+  }catch(e){}
+}
+setTimeout(ping, 20000);
+setInterval(ping, 5 * 60 * 1000);
+
 /* ================= Regeln im Wechsel =================
    Takt aus dem Blatt "Einstellungen", Zeile "Regeln": Info | Deutsch | Englisch (Sekunden).
    Standard 40 | 10 | 10. Beide Regel-Werte 0 = Regeln aus. Icons = sportssupport Sauna-Icons. */
@@ -825,9 +879,11 @@ function runBar(ms, from, to){
   void f.offsetWidth;                                           // Neustart der Animation
   f.style.transition = "width " + ms + "ms linear"; f.style.width = to + "%";
 }
-let rulePhase = "info", ruleTimer = null;
-function nextRulePhase(){
+let rulePhase = "info", ruleTimer = null, lastPhaseChange = Date.now();
+function nextRulePhase(){ try{ nextRulePhaseInner(); }catch(e){ lastErr = "Regeln: " + (e && e.message ? e.message : e); clearTimeout(ruleTimer); ruleTimer = setTimeout(nextRulePhase, 10000); } }
+function nextRulePhaseInner(){
   clearTimeout(ruleTimer);
+  lastPhaseChange = Date.now();
   const t = ruleTiming(), panel = document.getElementById("rules"), grid = document.getElementById("rgrid");
   const total = (t.de + t.en) * 1000;
   if(total <= 0){ panel.classList.remove("on"); rulePhase = "info"; ruleTimer = setTimeout(nextRulePhase, 60000); return; }
@@ -849,6 +905,11 @@ function nextRulePhase(){
     ruleTimer = setTimeout(nextRulePhase, t.info * 1000);
   }
 }
+// Waechter: bleibt der Wechsel haengen, wird er neu gestartet
+setInterval(function(){
+  const t = ruleTiming(), cycle = (t.info + t.de + t.en + 20) * 1000;
+  if(Date.now() - lastPhaseChange > cycle){ rulePhase = "info"; nextRulePhase(); }
+}, 10000);
 // Start: kurz warten, bis die Daten (und damit der Takt aus dem Sheet) da sind
 ruleTimer = setTimeout(() => { ruleTimer = setTimeout(nextRulePhase, Math.max(1000, ruleTiming().info * 1000 - 3000)); }, 3000);
 </script>

@@ -93,6 +93,8 @@ function render(d){
       meta += "<br>" + (s.videoProblem ? `<span class="warn">${esc(v)} seit über 15 Min</span>` : esc(v + c));
       if(typeof s.restarts === "number") meta += "<br>" + (s.restarts === 0 ? "Video ohne Unterbrechung seit Start" : esc("Video-Wächter eingegriffen: " + s.restarts + "× seit Start"));
     }
+    if(s.data) meta += "<br>" + (s.data === "ok" ? "Daten aktuell" : `<span class="warn">Daten veraltet – Laden aus dem Sheet scheitert</span>`);
+    if(s.err) meta += `<br><span class="warn">${esc(s.err)}</span>`;
     return `<div class="card"><div class="dot ${s.view}"></div><div class="txt">
       <div class="name">${esc(s.name)}</div>
       <div class="state ${s.view}">${LABEL[s.view] || esc(s.view)}</div>

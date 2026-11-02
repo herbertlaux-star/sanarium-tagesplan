@@ -234,6 +234,34 @@
 .status-row{margin-top:auto !important;margin-bottom:0 !important}
 .status-row.nometrics .status-text{padding-bottom:0}
 @keyframes bigBlink{0%,100%{opacity:1;transform:translateX(0)}50%{opacity:.35;transform:translateX(10px)}}
+
+/* ===== Aufguss im grossen, blinkenden Pfeil mit Countdown-Ring =====
+   Alles wird lokal im Display berechnet (wie die Uhr) - kein Laden noetig. */
+.bigarrow{display:none !important}
+.hero-title .bold{padding-left:0 !important}
+#aufguss{position:relative !important;right:auto !important;bottom:auto !important;margin-top:40px}
+#aufguss:empty{display:none}
+.pf{position:relative;width:100%;background:#f4bd00;color:#000;display:flex;align-items:center;gap:28px;min-height:250px;
+  filter:drop-shadow(0 0 28px rgba(244,189,0,.55));animation:pfBlink 1.8s ease-in-out infinite}
+.pf.r{clip-path:polygon(0 0,calc(100% - 120px) 0,100% 50%,calc(100% - 120px) 100%,0 100%);padding:22px 140px 22px 36px}
+.pf.l{clip-path:polygon(120px 0,100% 0,100% 100%,120px 100%,0 50%);padding:22px 36px 22px 140px}
+.pf.now{animation:pfBlinkFast .8s ease-in-out infinite}
+@keyframes pfBlink{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes pfBlinkFast{0%,100%{opacity:1}50%{opacity:.25}}
+.pf .ring{width:206px;height:206px;flex:0 0 auto;position:relative}
+.pf .ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.pf .ring .num{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.pf .ring .num b{font-family:'Frutiger LightCn',sans-serif;font-weight:400;font-size:110px}
+.pf .ring .num span{font-family:'Platelet',sans-serif;font-weight:600;font-size:34px;letter-spacing:4px;margin-top:2px}
+.pf .ring.stm{display:flex;align-items:center;justify-content:center;border:14px solid #000;border-radius:50%;box-sizing:border-box}
+.pf .ring.stm svg{width:96px;height:96px;transform:none}
+.pf .ring.stm svg path{stroke:#000;stroke-width:2.2}
+.pf .col{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pf .l1{font-family:'Platelet',sans-serif;font-weight:600;font-size:50px;letter-spacing:6px;line-height:1.05}
+.pf .l2{font-family:'Frutiger LightCn',sans-serif;font-weight:400;font-size:120px;line-height:1;white-space:nowrap}
+/* Cozy: mehr Platz oben fuer den Aufguss-Pfeil, Tagesplan passt sich an */
+.hero{height:1390px !important}
+.schedule{height:566px !important}
 </style>
 </head>
 <body>
@@ -541,28 +569,36 @@ function aufgussMinutes(){
   return Array.isArray(a) ? a : [0, 30];   // Standard: volle und halbe Stunde
 }
 const AUF_NOW_MIN = 3; // so lange nach dem Aufguss-Zeitpunkt steht "AUFGUSS JETZT"
+const AUF_DIR = "r";   // Pfeilrichtung zur Sauna
 function renderAufguss(rows, nowMin, activeRow){
+  // Aufguss im blinkenden Pfeil mit Countdown-Ring (wird jede Minute lokal neu berechnet)
   const el = document.getElementById("aufguss");
-  // Sanarium: automatische Bedampfung, keine festen Zeiten
-  if(activeRow && !isClosedRow(activeRow) && String(activeRow.bereich).toLowerCase().includes("sanarium")){
-    el.innerHTML = `<div class="auf bed">${steamIcon("#000")}<div><div class="ah">AUTOMATISCHE</div><div class="at">Bedampfung</div></div></div>`;
-    return;
+  let st = null, diff = 0, time = "";
+  if(activeRow && !isClosedRow(activeRow) && String(activeRow.bereich).toLowerCase().includes("sanarium")) st = "bed";
+  else {
+    const mins = aufgussMinutes();
+    for(let k = 0; k < AUF_NOW_MIN && !st; k++){ const m = nowMin - k; if(m >= 0 && mins.includes(m % 60) && isAufgussAt(rows, m)) st = "now"; }
+    if(!st){ for(let c = nowMin + 1; c < 24*60; c++){ if(mins.includes(c % 60) && isAufgussAt(rows, c)){ st = "count"; diff = c - nowMin; time = hhmm(c); break; } } }
   }
-  const mins = aufgussMinutes();
-  if(!mins.length){ el.innerHTML = ""; return; }
-  for(let k = 0; k < AUF_NOW_MIN; k++){
-    const m = nowMin - k;
-    if(m >= 0 && mins.includes(m % 60) && isAufgussAt(rows, m)){
-      el.innerHTML = `<div class="auf now">${steamIcon("#000")}<div><div class="ah">AUFGUSS</div><div class="at"><b>JETZT</b></div></div></div>`;
-      return;
-    }
+  if(!st){
+    // kein Aufguss mehr: bei Betrieb zeigt der Pfeil den Weg, bei geschlossener Sauna verschwindet er
+    if(!activeRow || isClosedRow(activeRow)){ el.dataset.h = ""; el.innerHTML = ""; return; }
+    st = "none";
   }
-  let next = null;
-  for(let c = nowMin + 1; c < 24*60; c++){ if(mins.includes(c % 60) && isAufgussAt(rows, c)){ next = c; break; } }
-  if(next === null){ el.innerHTML = ""; return; }
-  const diff = next - nowMin;
-  const txt = diff <= 15 ? `in <b>${diff} Min</b> · ${hhmm(next)}` : `<b>${hhmm(next)}</b> Uhr`;
-  el.innerHTML = `<div class="auf">${steamIcon("#000")}<div><div class="ah">NÄCHSTER AUFGUSS</div><div class="at">${txt}</div></div></div>`;
+  const ring = (p, inner) => { const C = 2 * Math.PI * 80;
+    return `<div class="ring"><svg viewBox="0 0 186 186"><circle cx="93" cy="93" r="80" fill="none" stroke="rgba(0,0,0,.18)" stroke-width="14"/>` +
+      `<circle cx="93" cy="93" r="80" fill="none" stroke="#000" stroke-width="14" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C*(1-p)}"/></svg><div class="num">${inner}</div></div>`; };
+  let h;
+  if(st === "count") h = ring(Math.max(0, Math.min(1, 1 - diff/30)), `<b>${diff}</b><span>MIN</span>`) + `<div class="col"><div class="l1">NÄCHSTER AUFGUSS</div><div class="l2">${time} Uhr</div></div>`;
+  else if(st === "now") h = ring(1, `<b style="font-size:72px">!</b>`) + `<div class="col"><div class="l1">AUFGUSS</div><div class="l2">JETZT</div></div>`;
+  else if(st === "bed") h = `<div class="ring stm">${steamIcon("#000")}</div><div class="col"><div class="l1">AUTOMATISCHE</div><div class="l2">Bedampfung</div></div>`;
+  else h = `<div class="col"><div class="l1">BITTE HIER</div><div class="l2">ZUR SAUNA</div></div>`;
+  const html = `<div class="pf ${AUF_DIR}${st === "now" ? " now" : ""}">${h}</div>`;
+  if(el.dataset.h === html) return;                 // unveraendert -> Blinken laeuft ruhig weiter
+  el.dataset.h = html; el.innerHTML = html;
+  // Text nie abschneiden: grosse Zeile verkleinern, bis alles im Pfeil Platz hat
+  const pf = el.firstChild, big = pf.querySelector(".l2");
+  if(big){ let fs = parseFloat(getComputedStyle(big).fontSize); while(pf.scrollWidth > pf.clientWidth + 1 && fs > 60){ fs -= 4; big.style.fontSize = fs + "px"; } }
 }
 
 function update(){
