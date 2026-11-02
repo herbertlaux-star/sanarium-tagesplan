@@ -319,12 +319,13 @@
 .pf .ring svg{width:100%;height:100%;transform:rotate(-90deg)}
 .pf .ring .num{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
 .pf .ring .num b{font-family:'Frutiger LightCn',sans-serif;font-weight:400;font-size:110px}
-.pf .ring .num span{font-family:'Platelet',sans-serif;font-weight:600;font-size:34px;letter-spacing:4px;margin-top:2px}
+.pf .ring .num b.d3{font-size:78px}
+.pf .ring .num span{font-family:'Frutiger LightCn',sans-serif;font-weight:400;font-size:34px;letter-spacing:4px;margin-top:2px}
 .pf .ring.stm{display:flex;align-items:center;justify-content:center;border:14px solid #000;border-radius:50%;box-sizing:border-box}
 .pf .ring.stm svg{width:96px;height:96px;transform:none}
 .pf .ring.stm svg path{stroke:#000;stroke-width:2.2}
 .pf .col{display:flex;flex-direction:column;gap:6px;min-width:0}
-.pf .l1{font-family:'Platelet',sans-serif;font-weight:600;font-size:50px;letter-spacing:6px;line-height:1.05}
+.pf .l1{font-family:'Frutiger LightCn',sans-serif;font-weight:400;font-size:52px;letter-spacing:5px;line-height:1.05;text-transform:uppercase}
 .pf .l2{font-family:'Frutiger LightCn',sans-serif;font-weight:400;font-size:120px;line-height:1;white-space:nowrap}
 </style>
 </head>
@@ -619,27 +620,40 @@ function renderAufguss(rows, nowMin, activeRow){
   else {
     const mins = aufgussMinutes();
     for(let k = 0; k < AUF_NOW_MIN && !st; k++){ const m = nowMin - k; if(m >= 0 && mins.includes(m % 60) && isAufgussAt(rows, m)) st = "now"; }
-    if(!st){ for(let c = nowMin + 1; c < 24*60; c++){ if(mins.includes(c % 60) && isAufgussAt(rows, c)){ st = "count"; diff = c - nowMin; time = hhmm(c); break; } } }
+    // naechster Aufguss nur innerhalb der laufenden Einheit (nicht erst in einer spaeteren)
+    const limit = (activeRow && !isClosedRow(activeRow)) ? toMinutes(activeRow.end) : 0;
+    if(!st){ for(let c = nowMin + 1; c < limit; c++){ if(mins.includes(c % 60) && isAufgussAt(rows, c)){ st = "count"; diff = c - nowMin; time = hhmm(c); break; } } }
   }
+  let nextRow = null;
   if(!st){
-    // kein Aufguss mehr: bei Betrieb zeigt der Pfeil den Weg, bei geschlossener Sauna verschwindet er
+    // kein Aufguss mehr: Countdown bis die Sauna schliesst (oder bis zum naechsten Betrieb)
     if(!activeRow || isClosedRow(activeRow)){ el.dataset.h = ""; el.innerHTML = ""; return; }
-    st = "none";
+    nextRow = rows.find(r => r.start === activeRow.end && !isClosedRow(r) && !String(r.bereich).toLowerCase().includes("reinigung")) || null;
+    diff = Math.max(0, toMinutes(activeRow.end) - nowMin);
+    time = activeRow.end;
+    st = nextRow ? "change" : "close";
   }
   const ring = (p, inner) => { const C = 2 * Math.PI * 80;
     return `<div class="ring"><svg viewBox="0 0 186 186"><circle cx="93" cy="93" r="80" fill="none" stroke="rgba(0,0,0,.18)" stroke-width="14"/>` +
       `<circle cx="93" cy="93" r="80" fill="none" stroke="#000" stroke-width="14" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C*(1-p)}"/></svg><div class="num">${inner}</div></div>`; };
   let h;
-  if(st === "count") h = ring(Math.max(0, Math.min(1, 1 - diff/30)), `<b>${diff}</b><span>MIN</span>`) + `<div class="col"><div class="l1">NÄCHSTER AUFGUSS</div><div class="l2">${time} Uhr</div></div>`;
-  else if(st === "now") h = ring(1, `<b style="font-size:72px">!</b>`) + `<div class="col"><div class="l1">AUFGUSS</div><div class="l2">JETZT</div></div>`;
-  else if(st === "bed") h = `<div class="ring stm">${steamIcon("#000")}</div><div class="col"><div class="l1">AUTOMATISCHE</div><div class="l2">Bedampfung</div></div>`;
-  else h = `<div class="col"><div class="l1">BITTE HIER</div><div class="l2">ZUR SAUNA</div></div>`;
+  if(st === "count") h = ring(Math.max(0, Math.min(1, 1 - diff/30)), `<b>${diff}</b><span>MIN</span>`) + `<div class="col"><div class="l1">Nächster Aufguss</div><div class="l2">${time} Uhr</div></div>`;
+  else if(st === "now") h = ring(1, `<b style="font-size:72px">!</b>`) + `<div class="col"><div class="l1">Aufguss</div><div class="l2">JETZT</div></div>`;
+  else if(st === "bed") h = `<div class="ring stm">${steamIcon("#000")}</div><div class="col"><div class="l1">Automatische</div><div class="l2">Bedampfung</div></div>`;
+  else {
+    const num = `<b${diff > 99 ? ' class="d3"' : ''}>${diff}</b><span>MIN</span>`;
+    const p = Math.max(0, Math.min(1, 1 - diff/30));
+    h = st === "close"
+      ? ring(p, num) + `<div class="col"><div class="l1">Sauna schließt</div><div class="l2">${time} Uhr</div></div>`
+      : ring(p, num) + `<div class="col"><div class="l1">Ab ${time} Uhr</div><div class="l2">${nextRow.bereich}</div></div>`;
+  }
   const html = `<div class="pf ${AUF_DIR}${st === "now" ? " now" : ""}">${h}</div>`;
   if(el.dataset.h === html) return;                 // unveraendert -> Blinken laeuft ruhig weiter
   el.dataset.h = html; el.innerHTML = html;
   // Text nie abschneiden: grosse Zeile verkleinern, bis alles im Pfeil Platz hat
   const pf = el.firstChild, big = pf.querySelector(".l2");
-  if(big){ let fs = parseFloat(getComputedStyle(big).fontSize); while(pf.scrollWidth > pf.clientWidth + 1 && fs > 60){ fs -= 4; big.style.fontSize = fs + "px"; } }
+  if(big){ const col = big.parentElement; let fs = parseFloat(getComputedStyle(big).fontSize);
+    while((big.scrollWidth > col.clientWidth + 1 || pf.scrollWidth > pf.clientWidth + 1) && fs > 56){ fs -= 4; big.style.fontSize = fs + "px"; } }
 }
 
 /* update() darf nie den Rest der Seite stoppen: Fehler werden gemerkt und an status.html gemeldet */
