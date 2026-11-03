@@ -177,7 +177,8 @@
 .auf .at b{font-weight:400}
 .auf.bed{background:#2a2a2a;color:#fff;box-shadow:inset 0 0 0 2px #f4bd00}
 .auf.bed svg path{stroke:#f4bd00}
-.auftag{font-size:27px !important;letter-spacing:.3px !important}
+.auftag{font-size:24px !important;letter-spacing:.2px !important;gap:9px !important;padding:9px 16px !important}
+.auftag svg{width:32px !important;height:32px !important}.auftag img.kel{height:31px !important}.auftag .gap{width:8px !important}
 .auf.now{animation:aufPulse 1.6s ease-in-out infinite}
 .auf.now svg{animation:steamUp 1.6s ease-in-out infinite}
 @keyframes aufPulse{0%,100%{box-shadow:0 0 0 0 rgba(244,189,0,.7)}50%{box-shadow:0 0 0 26px rgba(244,189,0,0)}}
@@ -188,6 +189,7 @@
 .schedule-list{min-height:0;overflow:hidden}
 .auftag{display:flex;align-items:center;gap:12px;background:#f4bd00;color:#000;border-radius:14px;padding:10px 20px;font-family:'Frutiger LightCn',sans-serif;font-weight:300;font-size:29px;letter-spacing:1px;white-space:nowrap}
 .auftag svg{width:38px;height:38px}
+.auftag img.kel{height:36px;width:auto}.auftag .gap{width:14px}
 .auftag b{font-family:'Platelet',sans-serif;font-weight:600;font-size:24px;letter-spacing:3px}
 
 /* ===== Uhrzeit (laeuft lokal im Player, sekundengenau) ===== */
@@ -645,7 +647,7 @@ function update(){
 /* ---------- Statischer Wegweiser-Pfeil (immer sichtbar, Richtung Sauna) ---------- */
 document.getElementById("statusArrow").innerHTML = arrowIcon(WAY_COLOR);
 document.getElementById("bigArrow").innerHTML = arrowIcon(WAY_COLOR);
-document.getElementById("aufTag").innerHTML = steamIcon("#000") + "Finnisch: Aufguss alle 30 Min · Sanarium: Bedampfung";
+document.getElementById("aufTag").innerHTML = '<img class="kel" src="' + AUF_ICON_KELLE + '" alt="">Finnisch: Aufguss alle 30 Min<span class="gap"></span>' + steamIcon("#000") + "Sanarium: Bedampfung";
 
 /* ---------- Skalierung an Fenster-/Screengroesse ---------- */
 function fitScreen(){
@@ -711,6 +713,28 @@ if(scheduleData){ update(); } else { showLoading(); }
 loadData();
 setInterval(tick, UI_REFRESH_MS);
 setTimeout(safeReload, PAGE_RELOAD_MS);
+
+/* ---------- Selbst-Update: alte Version im Speicher des Displays erkennen ----------
+   Laedt die Seite frisch von GitHub und vergleicht die BUILD-Kennung. Ist auf GitHub eine
+   neuere Version, wird sie unter einer neuen Adresse geladen (umgeht den Cache des Displays). */
+const BUILD = "2026-11-03a";
+(function(){
+  const RX = new RegExp("const BUILD = " + '"' + "([0-9a-z-]+)" + '"');
+  function check(){
+    const u = new URL(location.href); u.searchParams.set("_chk", Date.now());
+    fetch(u.toString(), { cache:"no-store" })
+      .then(function(r){ return r.ok ? r.text() : ""; })
+      .then(function(t){
+        const m = t.match(RX);
+        if(!m || m[1] === BUILD) return;
+        const go = new URL(location.href); go.searchParams.delete("_chk"); go.searchParams.set("_b", m[1]);
+        fetch(location.href, { cache:"reload" }).catch(function(){}).then(function(){ location.replace(go.toString()); });
+      })
+      .catch(function(){});
+  }
+  setTimeout(check, 20000);
+  setInterval(check, 30 * 60 * 1000);
+})();
 </script>
 </body>
 </html>

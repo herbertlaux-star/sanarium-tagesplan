@@ -352,7 +352,7 @@ function writeCache(d){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d));
 let dataTimer = null;
 function loadData(){
   clearTimeout(dataTimer);
-  fetch(DATA_URL + "&video=" + videoState() + "&codec=" + videoCodec() + "&restarts=" + rebuilds, { cache:"no-store" })
+  fetch(DATA_URL + "&video=" + videoState() + "&codec=" + videoCodec() + "&restarts=" + (rebuilds + brokenCount), { cache:"no-store" })
     .then(r => { if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(d => {
       if(!d || !d.sanarium || typeof d.sanarium !== "object") throw new Error("unerwartete Daten");
@@ -378,15 +378,37 @@ const VIDEO_SRC = PARAMS.get("video") === "hevc" ? "sauna-video-hevc.mp4" : "sau
 const KICK_AFTER_MS = 20000, REBUILD_AFTER_MS = 45000;
 let vid = null, lastT = -1, lastProgress = Date.now(), videoError = false, rebuilds = 0, rebuildsSinceOk = 0;
 let MEM_URL = null;                       // Video im Speicher (blob:)
+let MEM_BROKEN = false;                   // Speicher-Kopie war unvollstaendig -> nur noch direkt von GitHub
 function preloadVideo(){
-  fetch(VIDEO_SRC, { cache:"force-cache" })
-    .then(r => { if(!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
-    .then(b => {
-      if(!b || b.size < 1000000) throw new Error("Video unvollstaendig");
+  if(MEM_BROKEN) return;
+  // immer frisch und vollstaendig laden (nicht aus einem evtl. halben Cache des Displays)
+  fetch(VIDEO_SRC + "?dl=" + Date.now(), { cache:"no-store" })
+    .then(r => {
+      if(!r.ok) throw new Error("HTTP " + r.status);
+      const len = parseInt(r.headers.get("content-length") || "0", 10);
+      return r.blob().then(b => ({ b, len }));
+    })
+    .then(({ b, len }) => {
+      if(!b || b.size < 5000000) throw new Error("Video unvollstaendig (" + (b ? b.size : 0) + ")");
+      if(len && b.size !== len) throw new Error("Video unvollstaendig (" + b.size + " von " + len + ")");
       MEM_URL = URL.createObjectURL(b);   // Wechsel erfolgt am Ende des laufenden Durchlaufs
     })
     .catch(err => { console.warn("Video konnte nicht in den Speicher geladen werden:", err); setTimeout(preloadVideo, 10 * 60 * 1000); });
 }
+/* Endet das Video deutlich vor seiner Laenge, fehlt ein Teil der Datei (z. B. halbe Kopie im Speicher).
+   Dann: Speicher-Kopie verwerfen und an derselben Stelle direkt von GitHub weiterspielen. */
+let fullDur = 0;
+/* v._real = wie weit das Video wirklich lueckenlos gelaufen ist (bei kaputter Datei
+   springt die Anzeige am Ende einfach auf die volle Laenge) */
+function truncated(v){
+  const d = Math.max(fullDur, isFinite(v.duration) ? v.duration : 0);
+  return d > 10 && (v._real || 0) < d - 3;
+}
+function dropMem(){
+  if(MEM_URL){ try{ URL.revokeObjectURL(MEM_URL); }catch(e){} }
+  MEM_URL = null; MEM_BROKEN = true; brokenCount++;
+}
+let brokenCount = 0;
 
 function kick(){
   if(!vid) return;
@@ -399,7 +421,7 @@ function destroyVideo(){
   if(vid.parentNode) vid.parentNode.removeChild(vid);
   vid = null;
 }
-function createVideo(resumeAt){
+function createVideo(resumeAt, fresh){
   destroyVideo();
   const v = document.createElement("video");
   v.muted = true; v.defaultMuted = true; v.autoplay = true; v.playsInline = true;
@@ -412,13 +434,28 @@ function createVideo(resumeAt){
     }, { once:true });
   }
   v.addEventListener("canplay", kick);
-  v.addEventListener("ended", () => {
-    if(MEM_URL && v.src !== MEM_URL){ createVideo(0); return; }   // ab jetzt aus dem Speicher
-    try{ v.currentTime = 0; }catch(e){} kick();
+  v.addEventListener("loadedmetadata", () => {
+    if(isFinite(v.duration) && v.src.indexOf("blob:") !== 0) fullDur = Math.max(fullDur, v.duration);
   });
-  v.addEventListener("timeupdate", () => noteTime(v));
+  v.addEventListener("ended", () => {
+    if(truncated(v)){                                   // Datei unvollstaendig -> nicht von vorne!
+      const at = v._real || 0;
+      if(v.src.indexOf("blob:") === 0) dropMem(); else brokenCount++;
+      createVideo(at, true);                            // frisch von GitHub, an derselben Stelle
+      return;
+    }
+    if(MEM_URL && v.src !== MEM_URL){ createVideo(0); return; }   // ab jetzt aus dem Speicher
+    v._real = 0; try{ v.currentTime = 0; }catch(e){} kick();
+  });
+  v._real = 0;
+  v.addEventListener("seeked", () => { v._real = v.currentTime; });
+  v.addEventListener("timeupdate", () => {
+    const t = v.currentTime;
+    if(t >= v._real && t - v._real < 4) v._real = t;
+    noteTime(v);
+  });
   v.addEventListener("error", () => { videoError = true; });
-  v.src = MEM_URL || VIDEO_SRC;
+  v.src = fresh ? VIDEO_SRC + "?n=" + Date.now() : (MEM_URL || VIDEO_SRC);   // fresh = am Cache vorbei
   document.getElementById("vidbox").appendChild(v);
   vid = v; lastT = -1; lastProgress = Date.now();
   kick();
@@ -506,6 +543,28 @@ function dailyReload(){
   checkUpdate();
   setInterval(checkUpdate, UPDATE_CHECK_MS);
   setInterval(dailyReload, 60 * 1000);
+})();
+
+/* ---------- Selbst-Update: alte Version im Speicher des Displays erkennen ----------
+   Laedt die Seite frisch von GitHub und vergleicht die BUILD-Kennung. Ist auf GitHub eine
+   neuere Version, wird sie unter einer neuen Adresse geladen (umgeht den Cache des Displays). */
+const BUILD = "2026-11-03a";
+(function(){
+  const RX = new RegExp("const BUILD = " + '"' + "([0-9a-z-]+)" + '"');
+  function check(){
+    const u = new URL(location.href); u.searchParams.set("_chk", Date.now());
+    fetch(u.toString(), { cache:"no-store" })
+      .then(function(r){ return r.ok ? r.text() : ""; })
+      .then(function(t){
+        const m = t.match(RX);
+        if(!m || m[1] === BUILD) return;
+        const go = new URL(location.href); go.searchParams.delete("_chk"); go.searchParams.set("_b", m[1]);
+        fetch(location.href, { cache:"reload" }).catch(function(){}).then(function(){ location.replace(go.toString()); });
+      })
+      .catch(function(){});
+  }
+  setTimeout(check, 20000);
+  setInterval(check, 30 * 60 * 1000);
 })();
 </script>
 </body>
