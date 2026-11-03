@@ -124,6 +124,12 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
 .stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000}
 .screen{position:relative;width:1080px;height:1920px;flex:0 0 auto;background:#000;overflow:hidden;transform-origin:center center}
 #vidbox{position:absolute;left:0;top:0;width:1080px;height:1080px;background:#000;overflow:hidden}
+/* runde Ecken: Masken ueber dem Video (Display-Video wird sonst oft nicht beschnitten) */
+.vc{position:absolute;width:36px;height:36px;z-index:5;pointer-events:none}
+.vc.tl{left:0;top:0;background:radial-gradient(circle at 100% 100%,transparent 35.5px,#000 36px)}
+.vc.tr{right:0;top:0;background:radial-gradient(circle at 0 100%,transparent 35.5px,#000 36px)}
+.vc.bl{left:0;bottom:0;background:radial-gradient(circle at 100% 0,transparent 35.5px,#000 36px)}
+.vc.br{right:0;bottom:0;background:radial-gradient(circle at 0 0,transparent 35.5px,#000 36px)}
 #vidbox video{position:absolute;left:0;top:0;width:1080px;height:1080px;object-fit:cover;background:#000;display:block}
 .planwrap{position:absolute;left:0;top:1080px;width:1080px;height:840px}
 #plan .dh.today,#plan .dn.today{color:#000;font-weight:400}
@@ -134,7 +140,7 @@ html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden;cursor
 <body>
 <div class="stage">
   <div class="screen" id="screen">
-    <div id="vidbox"></div>
+    <div id="vidbox"><i class="vc tl"></i><i class="vc tr"></i><i class="vc bl"></i><i class="vc br"></i></div>
     <div class="planwrap"><div id="plan"><div class="loading">Wochenplan wird geladen …</div></div></div>
   </div>
 </div>
@@ -548,7 +554,7 @@ function dailyReload(){
 /* ---------- Selbst-Update: alte Version im Speicher des Displays erkennen ----------
    Laedt die Seite frisch von GitHub und vergleicht die BUILD-Kennung. Ist auf GitHub eine
    neuere Version, wird sie unter einer neuen Adresse geladen (umgeht den Cache des Displays). */
-const BUILD = "2026-11-03a";
+const BUILD = "2026-11-03b";
 (function(){
   const RX = new RegExp("const BUILD = " + '"' + "([0-9a-z-]+)" + '"');
   function check(){

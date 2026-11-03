@@ -243,8 +243,13 @@
 .hero-title .bold{padding-left:0 !important}
 #aufguss{position:relative !important;right:auto !important;bottom:auto !important;margin-top:40px}
 #aufguss:empty{display:none}
-.pf{position:relative;width:100%;background:#f4bd00;color:#000;display:flex;align-items:center;gap:28px;min-height:250px;
-  filter:drop-shadow(0 0 28px rgba(244,189,0,.55));overflow:hidden;animation:pfFlow 6s ease-in-out infinite}
+/* Pfeil = Spitze (SVG) + Rechteck - ohne clip-path, laeuft auch auf aelteren Display-Browsern */
+.pfw{position:relative;width:100%;display:flex;align-items:stretch;filter:drop-shadow(0 0 28px rgba(244,189,0,.55));animation:pfFlow 6s ease-in-out infinite}
+.pfw.r{flex-direction:row-reverse}
+.pfw .tip{flex:0 0 120px;position:relative;margin:0 -1px}
+.pfw .tip svg{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
+.pfw.alert{animation:pfBlink 1.8s ease-in-out infinite}
+.pf{position:relative;flex:1 1 auto;min-width:0;background:#f4bd00;color:#000;display:flex;align-items:center;gap:28px;min-height:250px;overflow:hidden}
 /* Normal: ruhiges "Fliessen" - sanftes Atmen + Lichtband, das in Pfeilrichtung durchzieht */
 .pf::after{content:"";position:absolute;top:0;bottom:0;width:38%;pointer-events:none;
   background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.38) 50%,rgba(255,255,255,0) 100%)}
@@ -254,10 +259,9 @@
 @keyframes pfSweepR{0%{transform:translateX(0)}70%,100%{transform:translateX(370%)}}
 @keyframes pfSweepL{0%{transform:translateX(0)}70%,100%{transform:translateX(-370%)}}
 /* 2 Minuten vor dem Aufguss und waehrend "Aufguss JETZT": deutlich blinken */
-.pf.alert{animation:pfBlink 1.8s ease-in-out infinite}
 .pf.alert::after{display:none}
-.pf.r{clip-path:polygon(0 0,calc(100% - 120px) 0,100% 50%,calc(100% - 120px) 100%,0 100%);padding:22px 140px 22px 36px}
-.pf.l{clip-path:polygon(120px 0,100% 0,100% 100%,120px 100%,0 50%);padding:22px 36px 22px 140px}
+.pf.r{padding:22px 20px 22px 36px}
+.pf.l{padding:22px 36px 22px 20px}
 
 @keyframes pfBlink{0%,100%{opacity:1}50%{opacity:.4}}
 @keyframes pfBlinkFast{0%,100%{opacity:1}50%{opacity:.25}}
@@ -623,7 +627,9 @@ function renderAufguss(rows, nowMin, activeRow){
       : ring(p, num) + `<div class="col"><div class="l1">Ab ${time} Uhr</div><div class="l2">${nextRow.bereich}</div></div>`;
   }
   const alert = st === "now" || (st === "count" && diff <= 2);   // kurz vor/waehrend Aufguss blinken, sonst ruhig fliessen
-  const html = `<div class="pf ${AUF_DIR}${st === "now" ? " now" : ""}${alert ? " alert" : ""}">${h}</div>`;
+  const tipPts = AUF_DIR === "l" ? "120,0 120,100 0,50" : "0,0 0,100 120,50";
+  const html = `<div class="pfw ${AUF_DIR}${alert ? " alert" : ""}"><i class="tip"><svg viewBox="0 0 120 100" preserveAspectRatio="none"><polygon points="${tipPts}" fill="#f4bd00"/></svg></i>`
+    + `<div class="pf ${AUF_DIR}${st === "now" ? " now" : ""}${alert ? " alert" : ""}">${h}</div></div>`;
   if(el.dataset.h === html) return;                 // unveraendert -> Blinken laeuft ruhig weiter
   el.dataset.h = html; el.innerHTML = html;
   // Text nie abschneiden: grosse Zeile verkleinern, bis alles im Pfeil Platz hat
@@ -717,7 +723,7 @@ setTimeout(safeReload, PAGE_RELOAD_MS);
 /* ---------- Selbst-Update: alte Version im Speicher des Displays erkennen ----------
    Laedt die Seite frisch von GitHub und vergleicht die BUILD-Kennung. Ist auf GitHub eine
    neuere Version, wird sie unter einer neuen Adresse geladen (umgeht den Cache des Displays). */
-const BUILD = "2026-11-03a";
+const BUILD = "2026-11-03b";
 (function(){
   const RX = new RegExp("const BUILD = " + '"' + "([0-9a-z-]+)" + '"');
   function check(){
