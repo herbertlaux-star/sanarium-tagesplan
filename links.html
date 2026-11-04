@@ -356,9 +356,17 @@ function writeCache(d){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d));
 
 /* ---------- Daten laden ---------- */
 let dataTimer = null;
+/* fetch mit Zeitlimit: haengt eine Anfrage (z. B. Google antwortet nicht), wird nach 40 s
+   abgebrochen und neu versucht - sonst bliebe der Plan stehen, ohne dass es jemand merkt */
+function fetchT(url, opts, ms){
+  return Promise.race([
+    fetch(url, opts),
+    new Promise(function(_, rej){ setTimeout(function(){ rej(new Error("Zeitueberschreitung")); }, ms || 40000); })
+  ]);
+}
 function loadData(){
   clearTimeout(dataTimer);
-  fetch(DATA_URL + "&video=" + videoState() + "&codec=" + videoCodec() + "&restarts=" + (rebuilds + brokenCount), { cache:"no-store" })
+  fetchT(DATA_URL + "&video=" + videoState() + "&codec=" + videoCodec() + "&restarts=" + (rebuilds + brokenCount) + "&mem=" + encodeURIComponent(memState), { cache:"no-store" })
     .then(r => { if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(d => {
       if(!d || !d.sanarium || typeof d.sanarium !== "object") throw new Error("unerwartete Daten");
@@ -384,6 +392,7 @@ const VIDEO_SRC = PARAMS.get("video") === "hevc" ? "sauna-video-hevc.mp4" : "sau
 const KICK_AFTER_MS = 20000, REBUILD_AFTER_MS = 45000;
 let vid = null, lastT = -1, lastProgress = Date.now(), videoError = false, rebuilds = 0, rebuildsSinceOk = 0;
 let MEM_URL = null;                       // Video im Speicher (blob:)
+var memState = "laedt";                // fuer status.html: ok / laedt / Fehlertext
 let MEM_BROKEN = false;                   // Speicher-Kopie war unvollstaendig -> nur noch direkt von GitHub
 function preloadVideo(){
   if(MEM_BROKEN) return;
@@ -397,9 +406,9 @@ function preloadVideo(){
     .then(({ b, len }) => {
       if(!b || b.size < 5000000) throw new Error("Video unvollstaendig (" + (b ? b.size : 0) + ")");
       if(len && b.size !== len) throw new Error("Video unvollstaendig (" + b.size + " von " + len + ")");
-      MEM_URL = URL.createObjectURL(b);   // Wechsel erfolgt am Ende des laufenden Durchlaufs
+      MEM_URL = URL.createObjectURL(b); memState = "ok";   // Wechsel erfolgt am Ende des laufenden Durchlaufs
     })
-    .catch(err => { console.warn("Video konnte nicht in den Speicher geladen werden:", err); setTimeout(preloadVideo, 10 * 60 * 1000); });
+    .catch(err => { console.warn("Video konnte nicht in den Speicher geladen werden:", err); memState = String(err && err.message ? err.message : err).slice(0, 50); setTimeout(preloadVideo, 10 * 60 * 1000); });
 }
 /* Endet das Video deutlich vor seiner Laenge, fehlt ein Teil der Datei (z. B. halbe Kopie im Speicher).
    Dann: Speicher-Kopie verwerfen und an derselben Stelle direkt von GitHub weiterspielen. */
@@ -412,7 +421,7 @@ function truncated(v){
 }
 function dropMem(){
   if(MEM_URL){ try{ URL.revokeObjectURL(MEM_URL); }catch(e){} }
-  MEM_URL = null; MEM_BROKEN = true; brokenCount++;
+  MEM_URL = null; MEM_BROKEN = true; brokenCount++; memState = "Kopie unvollstaendig";
 }
 let brokenCount = 0;
 
@@ -554,7 +563,7 @@ function dailyReload(){
 /* ---------- Selbst-Update: alte Version im Speicher des Displays erkennen ----------
    Laedt die Seite frisch von GitHub und vergleicht die BUILD-Kennung. Ist auf GitHub eine
    neuere Version, wird sie unter einer neuen Adresse geladen (umgeht den Cache des Displays). */
-const BUILD = "2026-11-03b";
+const BUILD = "2026-11-04a";
 (function(){
   const RX = new RegExp("const BUILD = " + '"' + "([0-9a-z-]+)" + '"');
   function check(){

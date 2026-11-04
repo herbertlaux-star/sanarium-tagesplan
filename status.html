@@ -91,6 +91,7 @@ function render(d){
       const v = s.video === "laeuft" ? "Video läuft" : (s.video === "fehler" ? "Video-Fehler" : "Video steht");
       const c = s.codec ? " (" + (/hevc/.test(s.codec) ? "HEVC" : "H.264") + (/mem/.test(s.codec) ? ", aus Speicher" : "") + ")" : "";
       meta += "<br>" + (s.videoProblem ? `<span class="warn">${esc(v)} seit über 15 Min</span>` : esc(v + c));
+      if(s.mem && s.mem !== "ok") meta += "<br>" + (s.mem === "laedt" ? "Video wird gerade in den Speicher geladen" : `<span class="warn">${esc("Speicher: " + s.mem)}</span>`);
       if(typeof s.restarts === "number") meta += "<br>" + (s.restarts === 0 ? "Video ohne Unterbrechung seit Start" : esc("Video-Wächter eingegriffen: " + s.restarts + "× seit Start"));
     }
     if(s.data) meta += "<br>" + (s.data === "ok" ? "Daten aktuell" : `<span class="warn">Daten veraltet – Laden aus dem Sheet scheitert</span>`);
