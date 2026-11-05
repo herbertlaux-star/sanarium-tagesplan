@@ -391,39 +391,74 @@ const PARAMS = new URLSearchParams(location.search);
 const VIDEO_SRC = PARAMS.get("video") === "hevc" ? "sauna-video-hevc.mp4" : "sauna-video.mp4";
 const KICK_AFTER_MS = 20000, REBUILD_AFTER_MS = 45000;
 let vid = null, lastT = -1, lastProgress = Date.now(), videoError = false, rebuilds = 0, rebuildsSinceOk = 0;
-let MEM_URL = null;                       // Video im Speicher (blob:)
-var memState = "laedt";                // fuer status.html: ok / laedt / Fehlertext
-let MEM_BROKEN = false;                   // Speicher-Kopie war unvollstaendig -> nur noch direkt von GitHub
+let MEM_URL = null;                       // aktuelle Speicher-Wiedergabe (MediaSource-Adresse)
+var memState = "laedt";                   // fuer status.html: ok / laedt / Fehlertext
+let MSE_BROKEN = false, brokenCount = 0;
+let MSE_BUF = null;                       // komplettes Video als Bytes im Arbeitsspeicher
+/* Speicher-Wiedergabe ueber MediaSource (wie YouTube auf Samsung-TVs):
+   Video wird 1x komplett geladen und direkt in den Videopuffer gespielt.
+   Danach braucht die Schleife kein Netz mehr und startet ohne Wartezeit.
+   Klappt das nicht, laeuft das Video wie bisher direkt von GitHub. */
+const MSE_SRC = "sauna-video-mse.mp4";
+const MSE_TYPE = 'video/mp4; codecs="avc1.640029"';
+function mseSupported(){
+  try{ return !!(window.MediaSource && MediaSource.isTypeSupported && MediaSource.isTypeSupported(MSE_TYPE)); }catch(e){ return false; }
+}
 function preloadVideo(){
-  if(MEM_BROKEN) return;
-  // immer frisch und vollstaendig laden (nicht aus einem evtl. halben Cache des Displays)
-  fetch(VIDEO_SRC + "?dl=" + Date.now(), { cache:"no-store" })
+  if(MSE_BROKEN) return;
+  if(!mseSupported()){ MSE_BROKEN = true; memState = "MediaSource nicht verfuegbar"; return; }
+  fetch(MSE_SRC + "?dl=" + Date.now(), { cache:"no-store" })
     .then(r => {
       if(!r.ok) throw new Error("HTTP " + r.status);
       const len = parseInt(r.headers.get("content-length") || "0", 10);
-      return r.blob().then(b => ({ b, len }));
+      return r.arrayBuffer().then(buf => ({ buf, len }));
     })
-    .then(({ b, len }) => {
-      if(!b || b.size < 5000000) throw new Error("Video unvollstaendig (" + (b ? b.size : 0) + ")");
-      if(len && b.size !== len) throw new Error("Video unvollstaendig (" + b.size + " von " + len + ")");
-      MEM_URL = URL.createObjectURL(b); memState = "ok";   // Wechsel erfolgt am Ende des laufenden Durchlaufs
+    .then(({ buf, len }) => {
+      if(!buf || buf.byteLength < 3000000) throw new Error("Download unvollstaendig (" + (buf ? buf.byteLength : 0) + ")");
+      if(len && buf.byteLength !== len) throw new Error("Download unvollstaendig (" + buf.byteLength + " von " + len + ")");
+      MSE_BUF = buf; memState = "laedt";   // Wechsel erfolgt am Ende des laufenden Durchlaufs
     })
-    .catch(err => { console.warn("Video konnte nicht in den Speicher geladen werden:", err); memState = String(err && err.message ? err.message : err).slice(0, 50); setTimeout(preloadVideo, 10 * 60 * 1000); });
+    .catch(err => { memState = String(err && err.message ? err.message : err).slice(0, 50); setTimeout(preloadVideo, 10 * 60 * 1000); });
 }
-/* Endet das Video deutlich vor seiner Laenge, fehlt ein Teil der Datei (z. B. halbe Kopie im Speicher).
-   Dann: Speicher-Kopie verwerfen und an derselben Stelle direkt von GitHub weiterspielen. */
-let fullDur = 0;
-/* v._real = wie weit das Video wirklich lueckenlos gelaufen ist (bei kaputter Datei
+function mseFail(reason, at){
+  MSE_BROKEN = true; MSE_BUF = null; brokenCount++;
+  memState = ("Speicher-Wiedergabe: " + reason).slice(0, 58);
+  if(MEM_URL){ try{ URL.revokeObjectURL(MEM_URL); }catch(e){} MEM_URL = null; }
+  createVideo(at || 0, true);                        // weiter direkt von GitHub
+}
+/* Endet das Video deutlich vor seiner Laenge, fehlt ein Teil der Daten.
+   v._real = wie weit das Video wirklich lueckenlos gelaufen ist (bei kaputter Datei
    springt die Anzeige am Ende einfach auf die volle Laenge) */
+let fullDur = 0;
 function truncated(v){
   const d = Math.max(fullDur, isFinite(v.duration) ? v.duration : 0);
   return d > 10 && (v._real || 0) < d - 3;
 }
-function dropMem(){
-  if(MEM_URL){ try{ URL.revokeObjectURL(MEM_URL); }catch(e){} }
-  MEM_URL = null; MEM_BROKEN = true; brokenCount++; memState = "Kopie unvollstaendig";
+/* Video in den Puffer spielen (in Teilen, damit der Fernseher nicht ueberlaeuft) */
+function feedMSE(v, ms){
+  let sb;
+  try{ sb = ms.addSourceBuffer(MSE_TYPE); }catch(e){ mseFail("kein Puffer"); return; }
+  const CH = 1024 * 1024, buf = MSE_BUF; let pos = 0;
+  sb.addEventListener("error", () => { if(v === vid) mseFail("Pufferfehler", v._real); });
+  sb.addEventListener("updateend", next);
+  function next(){
+    if(v !== vid) return;
+    if(pos >= buf.byteLength){
+      try{ ms.endOfStream(); }catch(e){}
+      // ist wirklich das ganze Video im Puffer?
+      try{
+        const b = v.buffered, d = v.duration;
+        if(!(b.length >= 1 && b.start(0) < 0.5 && b.end(b.length - 1) > d - 1)){ mseFail("Puffer unvollstaendig", v._real); return; }
+      }catch(e){}
+      memState = "ok";
+      return;
+    }
+    try{ sb.appendBuffer(buf.slice(pos, pos + CH)); pos += CH; }
+    catch(e){ mseFail(e && e.name === "QuotaExceededError" ? "Puffer zu klein" : "Fehler beim Fuellen", v._real); }
+  }
+  next();
 }
-let brokenCount = 0;
+
 
 function kick(){
   if(!vid) return;
@@ -436,7 +471,7 @@ function destroyVideo(){
   if(vid.parentNode) vid.parentNode.removeChild(vid);
   vid = null;
 }
-function createVideo(resumeAt, fresh){
+function createVideo(resumeAt, fresh, mse){
   destroyVideo();
   const v = document.createElement("video");
   v.muted = true; v.defaultMuted = true; v.autoplay = true; v.playsInline = true;
@@ -450,16 +485,16 @@ function createVideo(resumeAt, fresh){
   }
   v.addEventListener("canplay", kick);
   v.addEventListener("loadedmetadata", () => {
-    if(isFinite(v.duration) && v.src.indexOf("blob:") !== 0) fullDur = Math.max(fullDur, v.duration);
+    if(isFinite(v.duration) && !v._mse) fullDur = Math.max(fullDur, v.duration);
   });
   v.addEventListener("ended", () => {
     if(truncated(v)){                                   // Datei unvollstaendig -> nicht von vorne!
       const at = v._real || 0;
-      if(v.src.indexOf("blob:") === 0) dropMem(); else brokenCount++;
-      createVideo(at, true);                            // frisch von GitHub, an derselben Stelle
+      if(v._mse){ mseFail("endet zu frueh", at); return; }
+      brokenCount++; createVideo(at, true);             // frisch von GitHub, an derselben Stelle
       return;
     }
-    if(MEM_URL && v.src !== MEM_URL){ createVideo(0); return; }   // ab jetzt aus dem Speicher
+    if(!v._mse && MSE_BUF && !MSE_BROKEN){ createVideo(0, false, true); return; }   // ab jetzt aus dem Speicher
     v._real = 0; try{ v.currentTime = 0; }catch(e){} kick();
   });
   v._real = 0;
@@ -470,7 +505,18 @@ function createVideo(resumeAt, fresh){
     noteTime(v);
   });
   v.addEventListener("error", () => { videoError = true; });
-  v.src = fresh ? VIDEO_SRC + "?n=" + Date.now() : (MEM_URL || VIDEO_SRC);   // fresh = am Cache vorbei
+  v._mse = !!mse;
+  if(mse){
+    let ms;
+    try{ ms = new MediaSource(); }catch(e){ MSE_BROKEN = true; memState = "MediaSource nicht verfuegbar"; mse = false; v._mse = false; }
+    if(ms){
+      ms.addEventListener("sourceopen", () => feedMSE(v, ms), { once:true });
+      if(MEM_URL){ try{ URL.revokeObjectURL(MEM_URL); }catch(e){} }
+      MEM_URL = URL.createObjectURL(ms);
+      v.src = MEM_URL;
+    }
+  }
+  if(!mse) v.src = fresh ? VIDEO_SRC + "?n=" + Date.now() : VIDEO_SRC;   // fresh = am Cache vorbei
   document.getElementById("vidbox").appendChild(v);
   vid = v; lastT = -1; lastProgress = Date.now();
   kick();
@@ -486,7 +532,7 @@ function videoState(){
   if(!vid || (videoError && Date.now() - lastProgress > 30000)) return "fehler";
   return (Date.now() - lastProgress < 30000 && !vid.paused) ? "laeuft" : "steht";
 }
-function videoCodec(){ return (VIDEO_SRC.indexOf("hevc") >= 0 ? "hevc" : "h264") + (vid && MEM_URL && vid.src === MEM_URL ? "-mem" : ""); }
+function videoCodec(){ return (VIDEO_SRC.indexOf("hevc") >= 0 ? "hevc" : "h264") + (vid && vid._mse ? "-mem" : ""); }
 
 function canHardReload(){
   try{
@@ -505,7 +551,7 @@ setInterval(() => {
   if(still >= (loading ? 180000 : REBUILD_AFTER_MS)){
     rebuilds++; rebuildsSinceOk++;
     if(rebuildsSinceOk > 3 && navigator.onLine !== false && canHardReload()){ location.reload(); return; }
-    createVideo(lastT > 0 ? lastT : 0);             // frisches Element, an derselben Stelle weiter
+    createVideo(lastT > 0 ? lastT : 0, false, !!(vid._mse && MSE_BUF && !MSE_BROKEN));   // frisches Element, an derselben Stelle weiter
   } else if(still >= KICK_AFTER_MS || vid.paused){
     kick();                                         // nur weiterspielen, kein Sprung
   }
@@ -563,7 +609,7 @@ function dailyReload(){
 /* ---------- Selbst-Update: alte Version im Speicher des Displays erkennen ----------
    Laedt die Seite frisch von GitHub und vergleicht die BUILD-Kennung. Ist auf GitHub eine
    neuere Version, wird sie unter einer neuen Adresse geladen (umgeht den Cache des Displays). */
-const BUILD = "2026-11-04a";
+const BUILD = "2026-11-05a";
 (function(){
   const RX = new RegExp("const BUILD = " + '"' + "([0-9a-z-]+)" + '"');
   function check(){
